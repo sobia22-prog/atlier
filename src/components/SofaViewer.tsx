@@ -160,12 +160,18 @@ export default function SofaViewer({
 
             scene.add(object);
 
-            // Responsive framing: Calculate camera distance based on limiting FOV
-            // so horizontal width on mobile screens never clips the sofa
-            const vFOV = (camera.fov * Math.PI) / 180;
-            const hFOV = 2 * Math.atan(Math.tan(vFOV / 2) * camera.aspect);
-            const effectiveFOV = Math.min(vFOV, hFOV);
-            const fitDistance = (sphere.radius / Math.sin(effectiveFOV / 2)) * 1.35;
+            // Responsive framing:
+            // On desktop/laptop (aspect >= 1), display the sofa large and heroic (~75% of stage).
+            // On mobile (aspect < 1), scale distance so entire horizontal span fits comfortably without clipping.
+            const aspect = camera.aspect;
+            let fitDistance: number;
+            if (aspect < 1.0) {
+              const vFOV = (camera.fov * Math.PI) / 180;
+              const hFOV = 2 * Math.atan(Math.tan(vFOV / 2) * aspect);
+              fitDistance = (sphere.radius / Math.sin(hFOV / 2)) * 1.12;
+            } else {
+              fitDistance = sphere.radius * 2.55;
+            }
             fitDistanceRef.current = fitDistance;
 
             const dir = new THREE.Vector3(0.72, 0.42, 0.82).normalize();
@@ -252,10 +258,14 @@ export default function SofaViewer({
       renderer.setSize(w, h);
 
       if (boundingSphereRef.current && !hasInteracted) {
-        const vFOV = (camera.fov * Math.PI) / 180;
-        const hFOV = 2 * Math.atan(Math.tan(vFOV / 2) * newAspect);
-        const effectiveFOV = Math.min(vFOV, hFOV);
-        const fitDistance = (boundingSphereRef.current.radius / Math.sin(effectiveFOV / 2)) * 1.35;
+        let fitDistance: number;
+        if (newAspect < 1.0) {
+          const vFOV = (camera.fov * Math.PI) / 180;
+          const hFOV = 2 * Math.atan(Math.tan(vFOV / 2) * newAspect);
+          fitDistance = (boundingSphereRef.current.radius / Math.sin(hFOV / 2)) * 1.12;
+        } else {
+          fitDistance = boundingSphereRef.current.radius * 2.55;
+        }
         fitDistanceRef.current = fitDistance;
 
         const dir = new THREE.Vector3(0.72, 0.42, 0.82).normalize();
@@ -358,7 +368,7 @@ export default function SofaViewer({
       className={`relative w-full flex flex-col items-center select-none ${className}`}
     >
       {/* 3D Canvas Stage with Clean Neutral Studio Background matching sofa1.jpg */}
-      <div className="relative w-full h-[320px] sm:h-[400px] md:h-[480px] lg:h-[560px] rounded-2xl sm:rounded-3xl overflow-hidden bg-[#D0CCC8] border border-[#C5BFBA] shadow-sm flex items-center justify-center transition-all">
+      <div className="relative w-full h-[340px] sm:h-[440px] md:h-[520px] lg:h-[620px] xl:h-[660px] rounded-2xl sm:rounded-3xl overflow-hidden bg-[#D0CCC8] border border-[#C5BFBA] shadow-sm flex items-center justify-center transition-all">
         
         {/* Top Badge */}
         <div className="absolute top-3 left-3 sm:top-5 sm:left-5 z-20 flex items-center gap-2">
