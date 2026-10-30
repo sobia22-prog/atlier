@@ -45,7 +45,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
           
           {/* 3D Sofa Viewer directly rendering sofa.obj + sofa.mtl */}
-          <div className="lg:col-span-8 order-2 lg:order-1 flex flex-col items-center w-full">
+          <div className="lg:col-span-8 order-1 flex flex-col items-center w-full">
             <SofaViewer
               objPath="/modals/obj/sofa.obj"
               mtlPath="/modals/obj/sofa.mtl"
@@ -53,7 +53,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
           </div>
 
           {/* Useful Product Information (Replacing Useless Swatches) */}
-          <div className="lg:col-span-4 order-1 lg:order-2 flex flex-col justify-center space-y-5 lg:pl-4">
+          <div className="lg:col-span-4 order-2 flex flex-col justify-center space-y-5 lg:pl-4">
             
             <div className="space-y-2">
               <span className="text-[10px] tracking-[0.18em] uppercase text-[#81766E] font-medium px-2 py-0.5 rounded bg-[#F2EDE6]">
