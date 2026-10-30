@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ivory: #FAF8F5;
+  --color-cream: #F2EDE6;
+  --color-stage: #F4EEE7;
+  --color-nude: #D8B9A6;
+  --color-nude-dark: #C28E75;
+  --color-peach: #E8C6B7;
+  --color-charcoal: #37312D;
+  --color-charcoal-deep: #25201D;
+  --color-taupe: #81766E;
+  --color-warm-border: #E6DED6;
+  --color-terracotta: #B36851;
+
+  --font-serif: var(--font-cormorant), "Cormorant Garamond", Georgia, serif;
+  --font-sans: var(--font-sans-ui), "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+  --bg-ivory: #FAF8F5;
+  --bg-cream: #F2EDE6;
+  --bg-stage: #F4EEE7;
+  --accent-nude: #D8B9A6;
+  --accent-peach: #E8C6B7;
+  --text-charcoal: #37312D;
+  --text-taupe: #81766E;
+  --border-warm: #E6DED6;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: #FAF8F5;
+  color: #37312D;
+}
+
+body {
+  background-color: #FAF8F5;
+  color: #37312D;
+  overflow-x: hidden;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom editorial selection */
+::selection {
+  background-color: #E8C6B7;
+  color: #37312D;
+}
+
+/* 3D Model Viewer host styling */
+model-viewer {
+  width: 100%;
+  height: 100%;
+  --poster-color: transparent;
+  outline: none;
+}
+
+/* Soft custom scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FAF8F5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #E6DED6;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #D8B9A6;
+}
+
+/* Subtle pulse animation for 3D guide */
+@keyframes softPulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+}
+
+.animate-soft-pulse {
+  animation: softPulse 3s ease-in-out infinite;
+}
