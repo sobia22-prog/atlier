@@ -33,31 +33,28 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
   return (
     <>
       <header
-        className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${
+        className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 w-full ${
           isScrolled
-            ? "bg-[#FAF8F5]/92 backdrop-blur-md border-b border-[#E6DED6]/80 py-3 shadow-2xs"
-            : "bg-transparent py-4 sm:py-5"
+            ? "bg-[#FAF8F5]/96 backdrop-blur-md border-b border-[#E6DED6]/80 py-2.5 sm:py-3 shadow-2xs"
+            : "bg-[#FAF8F5]/90 backdrop-blur-md sm:bg-transparent py-3 sm:py-5 border-b border-[#E6DED6]/60 sm:border-transparent"
         }`}
       >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+          <div className="flex items-center justify-between w-full">
             {/* Brand Logo */}
             <a
               href="#hero"
               onClick={(e) => handleNavClick(e, "#hero")}
-              className="group flex items-center gap-2.5 transition-opacity hover:opacity-85"
+              className="group flex items-center gap-2 sm:gap-2.5 transition-opacity hover:opacity-85 min-w-0"
             >
-              <div className="w-4 h-4 flex flex-col justify-center items-center gap-[3px]">
-                <span className="w-full h-[1px] bg-[#37312D] transition-transform group-hover:scale-x-110" />
-                <span className="w-2.5 h-[1px] bg-[#D8B9A6] transition-transform group-hover:w-full" />
-                <span className="w-full h-[1px] bg-[#37312D] transition-transform group-hover:scale-x-110" />
-              </div>
+              {/* Minimalist Studio Emblem (Diamond) - Distinct from hamburger menu */}
+              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rotate-45 border border-[#37312D] bg-[#D8B9A6]/70 shrink-0" />
 
-              <div className="flex flex-col">
-                <span className="font-serif text-lg tracking-[0.2em] uppercase text-[#37312D] font-medium leading-none">
+              <div className="flex flex-col min-w-0">
+                <span className="font-serif text-base sm:text-lg tracking-[0.16em] sm:tracking-[0.2em] uppercase text-[#37312D] font-medium leading-none truncate">
                   {siteConfig.brand.name}
                 </span>
-                <span className="text-[9px] tracking-[0.18em] text-[#81766E] uppercase font-light mt-0.5">
+                <span className="text-[8px] sm:text-[9px] tracking-[0.16em] sm:tracking-[0.18em] text-[#81766E] uppercase font-light mt-0.5">
                   Furniture Studio
                 </span>
               </div>
@@ -78,7 +75,7 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
             </nav>
 
             {/* Right Action */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               <button
                 type="button"
                 onClick={() => onOpenEnquiry(siteConfig.product.name)}
@@ -91,10 +88,10 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 rounded-full text-[#37312D] hover:bg-[#F2EDE6] transition-colors"
+                className="md:hidden flex items-center justify-center w-9 h-9 rounded-full bg-white/95 border border-[#E6DED6] text-[#37312D] hover:bg-[#F2EDE6] shadow-2xs transition-all shrink-0 cursor-pointer"
                 aria-label="Toggle Menu"
               >
-                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
               </button>
             </div>
           </div>

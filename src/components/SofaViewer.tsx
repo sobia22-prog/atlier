@@ -39,6 +39,8 @@ export default function SofaViewer({
   const animFrameId = useRef<number | null>(null);
   const initialCamPos = useRef<THREE.Vector3>(new THREE.Vector3());
   const initialTarget = useRef<THREE.Vector3>(new THREE.Vector3());
+  const boundingSphereRef = useRef<THREE.Sphere | null>(null);
+  const fitDistanceRef = useRef<number>(7.5);
 
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -153,21 +155,26 @@ export default function SofaViewer({
 
             const box = new THREE.Box3().setFromObject(object);
             const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
+            const sphere = box.getBoundingSphere(new THREE.Sphere());
+            boundingSphereRef.current = sphere;
 
             scene.add(object);
 
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const camDistance = maxDim * 1.45;
+            // Responsive framing: Calculate camera distance based on limiting FOV
+            // so horizontal width on mobile screens never clips the sofa
+            const vFOV = (camera.fov * Math.PI) / 180;
+            const hFOV = 2 * Math.atan(Math.tan(vFOV / 2) * camera.aspect);
+            const effectiveFOV = Math.min(vFOV, hFOV);
+            const fitDistance = (sphere.radius / Math.sin(effectiveFOV / 2)) * 1.35;
+            fitDistanceRef.current = fitDistance;
 
-            const camPos = new THREE.Vector3(
-              center.x + camDistance * 0.72,
-              center.y + camDistance * 0.42,
-              center.z + camDistance * 0.82
-            );
+            const dir = new THREE.Vector3(0.72, 0.42, 0.82).normalize();
+            const camPos = center.clone().add(dir.multiplyScalar(fitDistance));
 
             camera.position.copy(camPos);
             controls.target.copy(center);
+            controls.minDistance = fitDistance * 0.4;
+            controls.maxDistance = fitDistance * 2.8;
             controls.update();
 
             initialCamPos.current.copy(camPos);
@@ -239,9 +246,24 @@ export default function SofaViewer({
       if (!container || !camera || !renderer) return;
       const w = container.clientWidth;
       const h = container.clientHeight;
-      camera.aspect = w / h;
+      const newAspect = w / h;
+      camera.aspect = newAspect;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+
+      if (boundingSphereRef.current && !hasInteracted) {
+        const vFOV = (camera.fov * Math.PI) / 180;
+        const hFOV = 2 * Math.atan(Math.tan(vFOV / 2) * newAspect);
+        const effectiveFOV = Math.min(vFOV, hFOV);
+        const fitDistance = (boundingSphereRef.current.radius / Math.sin(effectiveFOV / 2)) * 1.35;
+        fitDistanceRef.current = fitDistance;
+
+        const dir = new THREE.Vector3(0.72, 0.42, 0.82).normalize();
+        const camPos = initialTarget.current.clone().add(dir.multiplyScalar(fitDistance));
+        camera.position.copy(camPos);
+        initialCamPos.current.copy(camPos);
+        controls.update();
+      }
     };
     window.addEventListener("resize", handleResize);
 
@@ -252,7 +274,7 @@ export default function SofaViewer({
       controls.dispose();
       renderer.dispose();
     };
-  }, [objPath, mtlPath]);
+  }, [objPath, mtlPath, hasInteracted]);
 
   // Camera Presets
   const applyPreset = useCallback((presetId: string) => {
@@ -263,17 +285,20 @@ export default function SofaViewer({
     const target = initialTarget.current;
     if (!camera || !controls) return;
 
-    const dist = 7.5;
+    const dist = fitDistanceRef.current || 7.5;
+    const dir = new THREE.Vector3();
+
     if (presetId === "perspective") {
-      camera.position.set(target.x + dist * 0.72, target.y + dist * 0.42, target.z + dist * 0.82);
+      dir.set(0.72, 0.42, 0.82).normalize();
     } else if (presetId === "front") {
-      camera.position.set(target.x, target.y + dist * 0.35, target.z + dist * 1.05);
+      dir.set(0, 0.28, 1.0).normalize();
     } else if (presetId === "profile") {
-      camera.position.set(target.x + dist * 1.05, target.y + dist * 0.35, target.z);
+      dir.set(1.0, 0.28, 0).normalize();
     } else if (presetId === "aerial") {
-      camera.position.set(target.x + dist * 0.4, target.y + dist * 1.1, target.z + dist * 0.5);
+      dir.set(0.2, 1.0, 0.25).normalize();
     }
 
+    camera.position.copy(target).add(dir.multiplyScalar(dist));
     controls.target.copy(target);
     controls.update();
   }, []);
@@ -333,22 +358,22 @@ export default function SofaViewer({
       className={`relative w-full flex flex-col items-center select-none ${className}`}
     >
       {/* 3D Canvas Stage with Clean Neutral Studio Background matching sofa1.jpg */}
-      <div className="relative w-full h-[430px] sm:h-[490px] md:h-[540px] lg:h-[590px] rounded-3xl overflow-hidden bg-[#D0CCC8] border border-[#C5BFBA] shadow-sm flex items-center justify-center transition-all">
+      <div className="relative w-full h-[320px] sm:h-[400px] md:h-[480px] lg:h-[560px] rounded-2xl sm:rounded-3xl overflow-hidden bg-[#D0CCC8] border border-[#C5BFBA] shadow-sm flex items-center justify-center transition-all">
         
         {/* Top Badge */}
-        <div className="absolute top-4 left-4 sm:top-5 sm:left-5 z-20 flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 backdrop-blur-md text-[11px] font-medium tracking-wider uppercase text-[#37312D] border border-white/60 shadow-2xs">
+        <div className="absolute top-3 left-3 sm:top-5 sm:left-5 z-20 flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/90 backdrop-blur-md text-[10px] sm:text-[11px] font-medium tracking-wider uppercase text-[#37312D] border border-white/60 shadow-2xs">
             <span className="w-1.5 h-1.5 rounded-full bg-[#D8B9A6] animate-pulse" />
             Interactive 3D View
           </span>
         </div>
 
         {/* Fullscreen Button */}
-        <div className="absolute top-4 right-4 sm:top-5 sm:right-5 z-20 flex items-center gap-2">
+        <div className="absolute top-3 right-3 sm:top-5 sm:right-5 z-20 flex items-center gap-2">
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="p-2 rounded-full bg-white/90 hover:bg-white text-[#37312D] text-xs font-medium border border-white/60 shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer backdrop-blur-sm"
+            className="p-1.5 sm:p-2 rounded-full bg-white/90 hover:bg-white text-[#37312D] text-xs font-medium border border-white/60 shadow-2xs transition-colors flex items-center gap-1.5 cursor-pointer backdrop-blur-sm"
             title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             aria-label="Toggle Fullscreen"
           >
@@ -382,27 +407,27 @@ export default function SofaViewer({
 
         {/* Subtle Guidance Badge */}
         {isLoaded && !hasInteracted && (
-          <div className="absolute bottom-5 sm:bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-all duration-700">
-            <div className="px-3.5 py-1.5 rounded-full bg-[#37312D]/85 backdrop-blur-md text-[#FAF8F5] text-xs font-light tracking-wide shadow-md flex items-center gap-2">
+          <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-all duration-700">
+            <div className="px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-[#37312D]/85 backdrop-blur-md text-[#FAF8F5] text-[11px] sm:text-xs font-light tracking-wide shadow-md flex items-center gap-1.5 sm:gap-2 whitespace-nowrap">
               <Compass className="w-3.5 h-3.5 text-[#E8C6B7]" />
-              <span>Drag to rotate · Scroll to zoom</span>
+              <span>Drag to rotate · Pinch to zoom</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Control Bar */}
-      <div className="w-full mt-3 flex items-center justify-between gap-2 px-1">
+      {/* Responsive Control Bar */}
+      <div className="w-full mt-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 px-0.5">
         {/* Preset Angles */}
-        <div className="flex items-center gap-1 p-1 rounded-full bg-[#F2EDE6]/80 border border-[#E6DED6]">
-          <span className="hidden sm:inline-flex items-center pl-2 pr-1 text-[10px] font-medium tracking-wider text-[#81766E] uppercase">
+        <div className="flex items-center gap-0.5 sm:gap-1 p-0.5 sm:p-1 rounded-full bg-[#F2EDE6]/90 border border-[#E6DED6]">
+          <span className="hidden md:inline-flex items-center pl-2 pr-1 text-[10px] font-medium tracking-wider text-[#81766E] uppercase">
             <Eye className="w-3 h-3 mr-1" />
             View:
           </span>
           <button
             type="button"
             onClick={() => applyPreset("perspective")}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+            className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium transition-all cursor-pointer ${
               activePreset === "perspective"
                 ? "bg-[#37312D] text-[#FAF8F5]"
                 : "text-[#37312D] hover:bg-white/60"
@@ -413,7 +438,7 @@ export default function SofaViewer({
           <button
             type="button"
             onClick={() => applyPreset("front")}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+            className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium transition-all cursor-pointer ${
               activePreset === "front"
                 ? "bg-[#37312D] text-[#FAF8F5]"
                 : "text-[#37312D] hover:bg-white/60"
@@ -424,7 +449,7 @@ export default function SofaViewer({
           <button
             type="button"
             onClick={() => applyPreset("profile")}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+            className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium transition-all cursor-pointer ${
               activePreset === "profile"
                 ? "bg-[#37312D] text-[#FAF8F5]"
                 : "text-[#37312D] hover:bg-white/60"
@@ -435,7 +460,7 @@ export default function SofaViewer({
           <button
             type="button"
             onClick={() => applyPreset("aerial")}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+            className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium transition-all cursor-pointer ${
               activePreset === "aerial"
                 ? "bg-[#37312D] text-[#FAF8F5]"
                 : "text-[#37312D] hover:bg-white/60"
@@ -446,7 +471,7 @@ export default function SofaViewer({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5 ml-auto sm:ml-0">
           <button
             type="button"
             onClick={toggleAutoRotate}
@@ -488,7 +513,7 @@ export default function SofaViewer({
           <button
             type="button"
             onClick={handleResetView}
-            className="px-3 py-1 sm:py-1.5 rounded-full bg-white hover:bg-[#F2EDE6] text-[#37312D] border border-[#E6DED6] text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+            className="p-1.5 sm:px-3 sm:py-1.5 rounded-full bg-white hover:bg-[#F2EDE6] text-[#37312D] border border-[#E6DED6] text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
             title="Reset"
             aria-label="Reset View"
           >
