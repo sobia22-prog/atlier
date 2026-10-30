@@ -40,7 +40,7 @@ export const siteConfig = {
       price: "PKR 285,000",
       dimensions: "230 × 190 × 76 cm",
       availability: "Made to Order",
-      image: "/images/sofa-product.jpg",
+      image: "/images/solene-sofa-studio.jpg",
       description: "Our signature corner sofa with deep seating and 5 decorative pillows included.",
     },
     {
@@ -51,7 +51,7 @@ export const siteConfig = {
       price: "PKR 145,000",
       dimensions: "94 × 88 × 74 cm",
       availability: "Made to Order",
-      image: "/images/chair-product.jpg",
+      image: "/images/solene-armchair-studio.jpg",
       description: "An inviting reading armchair with soft curves and lumbar comfort.",
     },
     {
@@ -62,7 +62,7 @@ export const siteConfig = {
       price: "PKR 390,000",
       dimensions: "295 × 195 × 76 cm",
       availability: "Made to Order",
-      image: "/images/chaise-product.jpg",
+      image: "/images/solene-chaise-studio.jpg",
       description: "Spacious extended lounger designed for reading and afternoon naps.",
     },
     {
@@ -73,7 +73,7 @@ export const siteConfig = {
       price: "PKR 85,000",
       dimensions: "98 × 64 × 42 cm",
       availability: "In Stock & Made to Order",
-      image: "/images/ottoman-product.jpg",
+      image: "/images/solene-ottoman-studio.jpg",
       description: "Versatile soft bench doubling as a footstool or extra living room seat.",
     },
   ] as CollectionProduct[],
