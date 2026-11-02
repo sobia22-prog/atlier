@@ -91,6 +91,82 @@ function createFabricBrandPatch(titleText: string, subtitleText: string, width =
   return patchMesh;
 }
 
+// Generates an authentic Scandinavian white oak floor plank texture
+function createOakFloorTexture() {
+  if (typeof document === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Base warm Scandinavian natural oak tone
+  ctx.fillStyle = "#D6C7B3";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const plankHeight = 128;
+  const plankWidths = [380, 420, 350, 440, 390];
+
+  for (let row = 0; row < 8; row++) {
+    const y = row * plankHeight;
+    const toneOffset = (((row * 7) % 5) - 2) * 4;
+    ctx.fillStyle = `rgba(${218 + toneOffset}, ${203 + toneOffset}, ${183 + toneOffset}, 0.38)`;
+    ctx.fillRect(0, y, canvas.width, plankHeight);
+
+    // Plank joints
+    let currX = (row * 190) % 360;
+    while (currX < canvas.width) {
+      ctx.fillStyle = "rgba(75, 62, 50, 0.28)";
+      ctx.fillRect(currX, y, 2, plankHeight);
+      currX += plankWidths[row % plankWidths.length];
+    }
+
+    // Plank edge bevel groove
+    ctx.fillStyle = "rgba(65, 52, 42, 0.30)";
+    ctx.fillRect(0, y + plankHeight - 2, canvas.width, 2);
+
+    // Fine grain streaks
+    ctx.fillStyle = "rgba(70, 55, 42, 0.035)";
+    for (let g = 0; g < 12; g++) {
+      ctx.fillRect(0, y + 10 + g * 10, canvas.width, 1.5);
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(5, 5);
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+// Generates a soft circular alpha falloff map for the floor so it blends seamlessly into room panorama
+function createFloorAlphaMap() {
+  if (typeof document === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Radial gradient: white in center (opaque), fading to black at outer edge (transparent)
+  const grad = ctx.createRadialGradient(256, 256, 120, 256, 256, 252);
+  grad.addColorStop(0, "rgba(255, 255, 255, 1.0)");
+  grad.addColorStop(0.55, "rgba(255, 255, 255, 0.96)");
+  grad.addColorStop(0.85, "rgba(255, 255, 255, 0.40)");
+  grad.addColorStop(1, "rgba(255, 255, 255, 0.0)");
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export default function SofaViewer({
   objPath = "/modals/obj/sofa.obj",
   mtlPath = "/modals/obj/sofa.mtl",
@@ -106,6 +182,7 @@ export default function SofaViewer({
   const modelRef = useRef<THREE.Group | null>(null);
   const roomTextureRef = useRef<THREE.Texture | null>(null);
   const shadowPlaneRef = useRef<THREE.Mesh | null>(null);
+  const floorMeshRef = useRef<THREE.Mesh | null>(null);
   const animFrameId = useRef<number | null>(null);
   const initialCamPos = useRef<THREE.Vector3>(new THREE.Vector3());
   const initialTarget = useRef<THREE.Vector3>(new THREE.Vector3());
@@ -114,7 +191,7 @@ export default function SofaViewer({
 
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [isAutoRotating, setIsAutoRotating] = useState(true);
+  const [isAutoRotating, setIsAutoRotating] = useState(false);
   const [activePreset, setActivePreset] = useState("perspective");
   const [environmentMode, setEnvironmentMode] = useState<"room" | "studio">("room");
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -172,9 +249,9 @@ export default function SofaViewer({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.autoRotate = true;
+    controls.autoRotate = false; // Static by default, never rotating unless user clicks rotate
     controls.autoRotateSpeed = 1.0;
-    controls.maxPolarAngle = Math.PI / 2 + 0.04;
+    controls.maxPolarAngle = Math.PI / 2 - 0.04; // Keep camera above floor level
     controls.minDistance = 2.5;
     controls.maxDistance = 16;
     controlsRef.current = controls;
@@ -249,17 +326,34 @@ export default function SofaViewer({
             const sphere = box.getBoundingSphere(new THREE.Sphere());
             boundingSphereRef.current = sphere;
 
-            // 1. Realistic ground contact shadow on the modern room floor
+            // 1. Scandinavian Oak Wood Floor Plane grounding the sofa
+            const floorTexture = createOakFloorTexture();
+            const floorAlpha = createFloorAlphaMap();
+            const floorGeo = new THREE.PlaneGeometry(36, 36);
+            const floorMat = new THREE.MeshLambertMaterial({
+              map: floorTexture || undefined,
+              alphaMap: floorAlpha || undefined,
+              transparent: !!floorAlpha,
+              color: floorTexture ? 0xffffff : 0xd8c8b4,
+              depthWrite: false,
+            });
+            const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+            floorMesh.rotation.x = -Math.PI / 2;
+            floorMesh.position.set(center.x, -0.082, center.z);
+            scene.add(floorMesh);
+            floorMeshRef.current = floorMesh;
+
+            // 2. Realistic ground contact shadow directly under the sofa base and feet
             const shadowCanvas = document.createElement("canvas");
             shadowCanvas.width = 512;
             shadowCanvas.height = 512;
             const sCtx = shadowCanvas.getContext("2d");
             if (sCtx) {
-              const grad = sCtx.createRadialGradient(256, 256, 40, 256, 256, 245);
-              grad.addColorStop(0, "rgba(25, 20, 16, 0.42)");
-              grad.addColorStop(0.35, "rgba(25, 20, 16, 0.28)");
-              grad.addColorStop(0.7, "rgba(25, 20, 16, 0.10)");
-              grad.addColorStop(1, "rgba(25, 20, 16, 0)");
+              const grad = sCtx.createRadialGradient(256, 256, 40, 256, 256, 248);
+              grad.addColorStop(0, "rgba(22, 18, 14, 0.58)");
+              grad.addColorStop(0.35, "rgba(22, 18, 14, 0.38)");
+              grad.addColorStop(0.7, "rgba(22, 18, 14, 0.12)");
+              grad.addColorStop(1, "rgba(22, 18, 14, 0)");
               sCtx.fillStyle = grad;
               sCtx.fillRect(0, 0, 512, 512);
             }
@@ -268,16 +362,16 @@ export default function SofaViewer({
             const shadowPlaneMat = new THREE.MeshBasicMaterial({
               map: sTexture,
               transparent: true,
-              opacity: 0.88,
+              opacity: 0.92,
               depthWrite: false,
             });
             const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
             shadowPlane.rotation.x = -Math.PI / 2;
-            shadowPlane.position.set(center.x, -0.075, center.z);
+            shadowPlane.position.set(center.x, -0.078, center.z);
             scene.add(shadowPlane);
             shadowPlaneRef.current = shadowPlane;
 
-            // 2. AZS Solutions brand fabric label seamlessly integrated on the front chaise
+            // 3. AZS Solutions brand fabric label seamlessly integrated on the front chaise
             const frontFabricPatch = createFabricBrandPatch(
               "AZS SOLUTIONS",
               "SIGNATURE LIVING · ATELIER EDITION ©",
@@ -286,11 +380,11 @@ export default function SofaViewer({
             );
             if (frontFabricPatch) {
               // Placed along the front lower face of the chaise cushion
-              frontFabricPatch.position.set(0.0, 0.22, -0.015);
+              frontFabricPatch.position.set(0.0, 0.24, 0.005);
               object.add(frontFabricPatch);
             }
 
-            // 3. Side armrest seam tag
+            // 4. Side armrest seam tag
             const sideFabricTag = createFabricBrandPatch(
               "AZS SOLUTIONS",
               "ATELIER SOREL · BESPOKE EDITION ©",
@@ -298,7 +392,7 @@ export default function SofaViewer({
               0.18
             );
             if (sideFabricTag) {
-              sideFabricTag.position.set(-0.985, 0.25, -0.9);
+              sideFabricTag.position.set(-1.005, 0.35, -1.2);
               sideFabricTag.rotation.y = -Math.PI / 2;
               object.add(sideFabricTag);
             }
@@ -319,17 +413,19 @@ export default function SofaViewer({
             }
             fitDistanceRef.current = fitDistance;
 
-            const dir = new THREE.Vector3(0.72, 0.42, 0.82).normalize();
-            const camPos = center.clone().add(dir.multiplyScalar(fitDistance));
+            // Natural standing eye-level perspective looking down at sofa resting on the floor
+            const lookTarget = new THREE.Vector3(center.x, 0.38, center.z);
+            const dir = new THREE.Vector3(0.72, 0.52, 0.82).normalize();
+            const camPos = lookTarget.clone().add(dir.multiplyScalar(fitDistance));
 
             camera.position.copy(camPos);
-            controls.target.copy(center);
+            controls.target.copy(lookTarget);
             controls.minDistance = fitDistance * 0.4;
             controls.maxDistance = fitDistance * 2.8;
             controls.update();
 
             initialCamPos.current.copy(camPos);
-            initialTarget.current.copy(center);
+            initialTarget.current.copy(lookTarget);
 
             setIsLoaded(true);
             setLoadError(null);
@@ -413,7 +509,7 @@ export default function SofaViewer({
         }
         fitDistanceRef.current = fitDistance;
 
-        const dir = new THREE.Vector3(0.72, 0.42, 0.82).normalize();
+        const dir = new THREE.Vector3(0.72, 0.52, 0.82).normalize();
         const camPos = initialTarget.current.clone().add(dir.multiplyScalar(fitDistance));
         camera.position.copy(camPos);
         initialCamPos.current.copy(camPos);
@@ -444,13 +540,13 @@ export default function SofaViewer({
     const dir = new THREE.Vector3();
 
     if (presetId === "perspective") {
-      dir.set(0.72, 0.42, 0.82).normalize();
+      dir.set(0.72, 0.52, 0.82).normalize();
     } else if (presetId === "front") {
-      dir.set(0, 0.28, 1.0).normalize();
+      dir.set(0, 0.38, 1.05).normalize();
     } else if (presetId === "profile") {
-      dir.set(1.0, 0.28, 0).normalize();
+      dir.set(1.05, 0.38, 0).normalize();
     } else if (presetId === "aerial") {
-      dir.set(0.2, 1.0, 0.25).normalize();
+      dir.set(0.2, 1.1, 0.25).normalize();
     }
 
     camera.position.copy(target).add(dir.multiplyScalar(dist));
@@ -500,11 +596,13 @@ export default function SofaViewer({
         if (nextMode === "room" && roomTextureRef.current) {
           scene.background = roomTextureRef.current;
           scene.environment = roomTextureRef.current;
+          if (floorMeshRef.current) floorMeshRef.current.visible = true;
           if (shadowPlaneRef.current) shadowPlaneRef.current.visible = true;
         } else {
           scene.background = new THREE.Color(0xd0ccc8);
           scene.environment = null;
-          if (shadowPlaneRef.current) shadowPlaneRef.current.visible = false;
+          if (floorMeshRef.current) floorMeshRef.current.visible = false;
+          if (shadowPlaneRef.current) shadowPlaneRef.current.visible = true;
         }
       }
       return nextMode;
