@@ -15,12 +15,80 @@ import {
   Compass,
   AlertCircle,
   Eye,
+  Home,
+  Sparkles,
 } from "lucide-react";
 
 interface SofaViewerProps {
   objPath?: string;
   mtlPath?: string;
   className?: string;
+}
+
+// Generates an authentic woven linen fabric label embossed with the brand text
+function createFabricBrandPatch(titleText: string, subtitleText: string, width = 0.72, height = 0.24) {
+  if (typeof document === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 340;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Warm ivory/cream linen base matching sofa upholstery (#DDD5C7)
+  ctx.fillStyle = "#DDD5C7";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Subtle cross-weave linen texture
+  ctx.fillStyle = "rgba(0, 0, 0, 0.022)";
+  for (let x = 0; x < canvas.width; x += 4) {
+    ctx.fillRect(x, 0, 2, canvas.height);
+  }
+  for (let y = 0; y < canvas.height; y += 4) {
+    ctx.fillRect(0, y, canvas.width, 2);
+  }
+
+  // Woven tailored perimeter seam stitches (fine artisan thread)
+  ctx.strokeStyle = "rgba(75, 65, 55, 0.38)";
+  ctx.lineWidth = 4;
+  ctx.setLineDash([12, 8]);
+  ctx.strokeRect(18, 18, canvas.width - 36, canvas.height - 36);
+  ctx.setLineDash([]);
+
+  // Inner subtle pressed seam border
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(26, 26, canvas.width - 52, canvas.height - 52);
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Debossed lighting highlight (offset slightly down)
+  ctx.font = "bold 68px 'Cormorant Garamond', Georgia, serif";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+  ctx.fillText(titleText, canvas.width / 2, canvas.height / 2 - 20);
+
+  // Main embossed lettering
+  ctx.fillStyle = "#322A24";
+  ctx.fillText(titleText, canvas.width / 2, canvas.height / 2 - 22);
+
+  // Subtitle / Couture Edition
+  ctx.font = "600 22px 'Plus Jakarta Sans', sans-serif";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+  ctx.fillText(subtitleText, canvas.width / 2, canvas.height / 2 + 56);
+  ctx.fillStyle = "#6E6258";
+  ctx.fillText(subtitleText, canvas.width / 2, canvas.height / 2 + 54);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
+
+  const patchGeo = new THREE.PlaneGeometry(width, height);
+  const patchMat = new THREE.MeshLambertMaterial({
+    map: texture,
+  });
+  const patchMesh = new THREE.Mesh(patchGeo, patchMat);
+  return patchMesh;
 }
 
 export default function SofaViewer({
@@ -36,6 +104,8 @@ export default function SofaViewer({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const modelRef = useRef<THREE.Group | null>(null);
+  const roomTextureRef = useRef<THREE.Texture | null>(null);
+  const shadowPlaneRef = useRef<THREE.Mesh | null>(null);
   const animFrameId = useRef<number | null>(null);
   const initialCamPos = useRef<THREE.Vector3>(new THREE.Vector3());
   const initialTarget = useRef<THREE.Vector3>(new THREE.Vector3());
@@ -46,6 +116,7 @@ export default function SofaViewer({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isAutoRotating, setIsAutoRotating] = useState(true);
   const [activePreset, setActivePreset] = useState("perspective");
+  const [environmentMode, setEnvironmentMode] = useState<"room" | "studio">("room");
   const [hasInteracted, setHasInteracted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -56,10 +127,30 @@ export default function SofaViewer({
 
     let isDisposed = false;
 
-    // 1. Scene matching the neutral photographic studio in sofa1.jpg
+    // 1. Scene setup: Modern 360 architectural room panorama (with neutral studio fallback)
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xd0ccc8); // Exact neutral studio grey from reference
+    scene.background = new THREE.Color(0xd0ccc8);
     sceneRef.current = scene;
+
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load(
+      "/textures/room-panorama.jpg",
+      (roomTexture) => {
+        if (isDisposed) return;
+        roomTexture.mapping = THREE.EquirectangularReflectionMapping;
+        roomTexture.colorSpace = THREE.SRGBColorSpace;
+        roomTextureRef.current = roomTexture;
+
+        if (environmentMode === "room") {
+          scene.background = roomTexture;
+          scene.environment = roomTexture;
+        }
+      },
+      undefined,
+      (err) => {
+        console.warn("Room panorama texture load error:", err);
+      }
+    );
 
     // 2. Camera
     const aspect = container.clientWidth / container.clientHeight;
@@ -157,6 +248,60 @@ export default function SofaViewer({
             const center = box.getCenter(new THREE.Vector3());
             const sphere = box.getBoundingSphere(new THREE.Sphere());
             boundingSphereRef.current = sphere;
+
+            // 1. Realistic ground contact shadow on the modern room floor
+            const shadowCanvas = document.createElement("canvas");
+            shadowCanvas.width = 512;
+            shadowCanvas.height = 512;
+            const sCtx = shadowCanvas.getContext("2d");
+            if (sCtx) {
+              const grad = sCtx.createRadialGradient(256, 256, 40, 256, 256, 245);
+              grad.addColorStop(0, "rgba(25, 20, 16, 0.42)");
+              grad.addColorStop(0.35, "rgba(25, 20, 16, 0.28)");
+              grad.addColorStop(0.7, "rgba(25, 20, 16, 0.10)");
+              grad.addColorStop(1, "rgba(25, 20, 16, 0)");
+              sCtx.fillStyle = grad;
+              sCtx.fillRect(0, 0, 512, 512);
+            }
+            const sTexture = new THREE.CanvasTexture(shadowCanvas);
+            const shadowPlaneGeo = new THREE.PlaneGeometry(8.5, 7.5);
+            const shadowPlaneMat = new THREE.MeshBasicMaterial({
+              map: sTexture,
+              transparent: true,
+              opacity: 0.88,
+              depthWrite: false,
+            });
+            const shadowPlane = new THREE.Mesh(shadowPlaneGeo, shadowPlaneMat);
+            shadowPlane.rotation.x = -Math.PI / 2;
+            shadowPlane.position.set(center.x, -0.075, center.z);
+            scene.add(shadowPlane);
+            shadowPlaneRef.current = shadowPlane;
+
+            // 2. AZS Solutions brand fabric label seamlessly integrated on the front chaise
+            const frontFabricPatch = createFabricBrandPatch(
+              "AZS SOLUTIONS",
+              "SIGNATURE LIVING · ATELIER EDITION ©",
+              0.72,
+              0.24
+            );
+            if (frontFabricPatch) {
+              // Placed along the front lower face of the chaise cushion
+              frontFabricPatch.position.set(0.0, 0.22, -0.015);
+              object.add(frontFabricPatch);
+            }
+
+            // 3. Side armrest seam tag
+            const sideFabricTag = createFabricBrandPatch(
+              "AZS SOLUTIONS",
+              "ATELIER SOREL · BESPOKE EDITION ©",
+              0.52,
+              0.18
+            );
+            if (sideFabricTag) {
+              sideFabricTag.position.set(-0.985, 0.25, -0.9);
+              sideFabricTag.rotation.y = -Math.PI / 2;
+              object.add(sideFabricTag);
+            }
 
             scene.add(object);
 
@@ -347,6 +492,25 @@ export default function SofaViewer({
     controls.update();
   }, []);
 
+  const toggleEnvironment = useCallback(() => {
+    setEnvironmentMode((prev) => {
+      const nextMode = prev === "room" ? "studio" : "room";
+      const scene = sceneRef.current;
+      if (scene) {
+        if (nextMode === "room" && roomTextureRef.current) {
+          scene.background = roomTextureRef.current;
+          scene.environment = roomTextureRef.current;
+          if (shadowPlaneRef.current) shadowPlaneRef.current.visible = true;
+        } else {
+          scene.background = new THREE.Color(0xd0ccc8);
+          scene.environment = null;
+          if (shadowPlaneRef.current) shadowPlaneRef.current.visible = false;
+        }
+      }
+      return nextMode;
+    });
+  }, []);
+
   const toggleFullscreen = useCallback(async () => {
     if (!containerRef.current) return;
     try {
@@ -370,12 +534,31 @@ export default function SofaViewer({
       {/* 3D Canvas Stage with Clean Neutral Studio Background matching sofa1.jpg */}
       <div className="relative w-full h-[340px] sm:h-[440px] md:h-[520px] lg:h-[620px] xl:h-[660px] rounded-2xl sm:rounded-3xl overflow-hidden bg-[#D0CCC8] border border-[#C5BFBA] shadow-sm flex items-center justify-center transition-all">
         
-        {/* Top Badge */}
+        {/* Top Badges & Environment Switcher */}
         <div className="absolute top-3 left-3 sm:top-5 sm:left-5 z-20 flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-white/90 backdrop-blur-md text-[10px] sm:text-[11px] font-medium tracking-wider uppercase text-[#37312D] border border-white/60 shadow-2xs">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1 rounded-full bg-white/92 backdrop-blur-md text-[10px] sm:text-[11px] font-medium tracking-wider uppercase text-[#37312D] border border-white/60 shadow-2xs">
             <span className="w-1.5 h-1.5 rounded-full bg-[#D8B9A6] animate-pulse" />
-            Interactive 3D View
+            {environmentMode === "room" ? "3D Living Room" : "3D Studio"}
           </span>
+
+          <button
+            type="button"
+            onClick={toggleEnvironment}
+            className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1 rounded-full bg-white/92 hover:bg-white text-[10px] sm:text-[11px] font-medium text-[#37312D] border border-white/60 shadow-2xs transition-all cursor-pointer backdrop-blur-md"
+            title="Switch between Living Room and Studio backdrop"
+          >
+            {environmentMode === "room" ? (
+              <>
+                <Sparkles className="w-3 h-3 text-[#B36851]" />
+                <span className="hidden xs:inline">Studio View</span>
+              </>
+            ) : (
+              <>
+                <Home className="w-3 h-3 text-[#B36851]" />
+                <span className="hidden xs:inline">Living Room</span>
+              </>
+            )}
+          </button>
         </div>
 
         {/* Fullscreen Button */}
