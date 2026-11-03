@@ -21,13 +21,13 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
   return (
     <section
       id="hero"
-      className="relative min-h-[90vh] pt-28 pb-14 lg:pt-32 lg:pb-16 flex flex-col justify-center"
+      className="relative min-h-[80vh] pt-24 pb-10 lg:pt-28 lg:pb-12 flex flex-col justify-center"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
         
         {/* Simple, Non-Technical Header Before 3D Section */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8 lg:mb-10">
-          <div className="space-y-1">
+        <div className="mb-6 lg:mb-7">
+          <div className="space-y-2">
             <span className="text-[11px] font-semibold tracking-[0.2em] uppercase text-[#81766E] block">
               Living Room Collection
             </span>
@@ -36,15 +36,15 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
             </h1>
           </div>
 
-          <p className="max-w-md text-xs sm:text-sm text-[#81766E] font-light leading-relaxed">
+          <p className="max-w-none text-xs sm:text-sm text-[#81766E] font-light leading-relaxed xl:whitespace-nowrap">
             Designed for relaxing, watching movies, and spending time with family. Deep soft seating, clean lines, and fabrics built for everyday comfort.
           </p>
         </div>
 
         {/* Main Grid: 3D Model Dominant (~70% desktop prominence) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
           
-          {/* 3D Sofa Viewer directly rendering sofa.obj + sofa.mtl */}
+          {/* Interactive 3D sofa viewer */}
           <div className="lg:col-span-8 order-1 flex flex-col items-center w-full">
             <SofaViewer
               objPath="/modals/obj/sofa.obj"
@@ -118,13 +118,13 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
             </div>
 
             {/* Clean CTAs */}
-            <div className="flex flex-col sm:flex-row lg:flex-col gap-2.5 pt-1">
+            <div className="flex sm:flex-row gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={() => onOpenEnquiry(siteConfig.product.name)}
                 className="w-full py-3.5 px-6 rounded-full bg-[#37312D] text-[#FAF8F5] text-xs font-medium uppercase tracking-[0.16em] hover:bg-[#25201D] transition-colors cursor-pointer text-center shadow-xs"
               >
-                Order or Ask Questions
+                Order Now
               </button>
 
               <button
@@ -132,7 +132,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
                 onClick={handleScrollToCatalog}
                 className="w-full py-2.5 px-6 rounded-full bg-[#F2EDE6] hover:bg-[#EAE4DC] text-[#37312D] text-xs font-medium uppercase tracking-[0.16em] transition-colors flex items-center justify-center gap-2 cursor-pointer text-center"
               >
-                <span>Browse All Furniture</span>
+                <span>Browse All</span>
                 <ArrowDown className="w-3.5 h-3.5 text-[#81766E]" />
               </button>
             </div>
