@@ -25,9 +25,15 @@ interface SofaViewerProps {
 export type ControlTarget = "all" | "sofa" | "room";
 
 // Camera placed inside the living room area framing both the TV console and the sofa ensemble
-const DEFAULT_TARGET = new THREE.Vector3(-280, 420, -370);
-const DEFAULT_CAMERA_POS = new THREE.Vector3(-120, 680, 850);
+const DEFAULT_TARGET = new THREE.Vector3(320, 430, -780);
+const DEFAULT_CAMERA_POS = new THREE.Vector3(350, 700, 1080);
 const BASE_FOV = 44;
+
+const SOFA_ORIGIN = new THREE.Vector3(100, 250, -880);
+const SOFA_SHIFT_X = 850;
+const SOFA_DEFAULT_POS = new THREE.Vector3(100 + SOFA_SHIFT_X, 250, -880);
+const SOFA_DEFAULT_ROT = new THREE.Euler(0, -Math.PI / 2, 0);
+const ROOM_ORIGIN = new THREE.Vector3(320, 430, -780);
 
 function calculateFov(aspect: number): number {
   if (aspect < 1.35) {
@@ -36,60 +42,58 @@ function calculateFov(aspect: number): number {
   return BASE_FOV;
 }
 
-// Splits non-indexed mesh geometry into floor/furniture items and ceiling fixtures
-function splitMeshByHeight(mesh: THREE.Mesh, thresholdY = 1200) {
+// Helper to cleanly extract submeshes from non-indexed FBX geometry by spatial criteria
+function extractSubmesh(
+  mesh: THREE.Mesh,
+  name: string,
+  filterFn: (cx: number, cy: number, cz: number) => boolean
+): THREE.Mesh {
   const geo = mesh.geometry;
   const pos = geo.attributes.position;
   const norm = geo.attributes.normal;
   const uv = geo.attributes.uv;
 
-  const lowPos: number[] = [];
-  const lowNorm: number[] = [];
-  const lowUv: number[] = [];
-  const highPos: number[] = [];
-  const highNorm: number[] = [];
-  const highUv: number[] = [];
+  const outPos: number[] = [];
+  const outNorm: number[] = [];
+  const outUv: number[] = [];
 
+  mesh.updateMatrixWorld(true);
   const v = new THREE.Vector3();
+
   for (let i = 0; i < pos.count; i += 3) {
-    let maxY = -Infinity;
+    let cx = 0, cy = 0, cz = 0;
     for (let j = 0; j < 3; j++) {
       v.fromBufferAttribute(pos, i + j);
       v.applyMatrix4(mesh.matrixWorld);
-      maxY = Math.max(maxY, v.y);
+      cx += v.x;
+      cy += v.y;
+      cz += v.z;
     }
-    const targetPos = maxY < thresholdY ? lowPos : highPos;
-    const targetNorm = maxY < thresholdY ? lowNorm : highNorm;
-    const targetUv = maxY < thresholdY ? lowUv : highUv;
+    cx /= 3;
+    cy /= 3;
+    cz /= 3;
 
-    for (let j = 0; j < 3; j++) {
-      targetPos.push(pos.getX(i + j), pos.getY(i + j), pos.getZ(i + j));
-      if (norm) targetNorm.push(norm.getX(i + j), norm.getY(i + j), norm.getZ(i + j));
-      if (uv) targetUv.push(uv.getX(i + j), uv.getY(i + j));
+    if (filterFn(cx, cy, cz)) {
+      for (let j = 0; j < 3; j++) {
+        outPos.push(pos.getX(i + j), pos.getY(i + j), pos.getZ(i + j));
+        if (norm) outNorm.push(norm.getX(i + j), norm.getY(i + j), norm.getZ(i + j));
+        if (uv) outUv.push(uv.getX(i + j), uv.getY(i + j));
+      }
     }
   }
 
-  const lowGeo = new THREE.BufferGeometry();
-  lowGeo.setAttribute("position", new THREE.Float32BufferAttribute(lowPos, 3));
-  if (norm) lowGeo.setAttribute("normal", new THREE.Float32BufferAttribute(lowNorm, 3));
-  if (uv) lowGeo.setAttribute("uv", new THREE.Float32BufferAttribute(lowUv, 2));
+  const outGeo = new THREE.BufferGeometry();
+  outGeo.setAttribute("position", new THREE.Float32BufferAttribute(outPos, 3));
+  if (norm) outGeo.setAttribute("normal", new THREE.Float32BufferAttribute(outNorm, 3));
+  if (uv) outGeo.setAttribute("uv", new THREE.Float32BufferAttribute(outUv, 2));
 
-  const highGeo = new THREE.BufferGeometry();
-  highGeo.setAttribute("position", new THREE.Float32BufferAttribute(highPos, 3));
-  if (norm) highGeo.setAttribute("normal", new THREE.Float32BufferAttribute(highNorm, 3));
-  if (uv) highGeo.setAttribute("uv", new THREE.Float32BufferAttribute(highUv, 2));
-
-  const lowMesh = new THREE.Mesh(lowGeo, mesh.material);
-  lowMesh.name = `${mesh.name}_furniture`;
-  lowMesh.matrix.copy(mesh.matrix);
-  lowMesh.matrixWorld.copy(mesh.matrixWorld);
-
-  const highMesh = new THREE.Mesh(highGeo, mesh.material);
-  highMesh.name = `${mesh.name}_ceiling`;
-  highMesh.matrix.copy(mesh.matrix);
-  highMesh.matrixWorld.copy(mesh.matrixWorld);
-
-  return { lowMesh, highMesh };
+  const newMesh = new THREE.Mesh(outGeo, mesh.material);
+  newMesh.name = name;
+  newMesh.position.copy(mesh.position);
+  newMesh.quaternion.copy(mesh.quaternion);
+  newMesh.scale.copy(mesh.scale);
+  newMesh.updateMatrixWorld(true);
+  return newMesh;
 }
 
 // Generates a high-contrast luxury embroidered fabric brand tag for AZS Solutions
@@ -174,16 +178,16 @@ const PRESETS: Record<string, { pos: THREE.Vector3; target: THREE.Vector3 }> = {
     target: DEFAULT_TARGET.clone(),
   },
   front: {
-    pos: new THREE.Vector3(-850, 560, -370),
-    target: new THREE.Vector3(450, 420, -370),
+    pos: new THREE.Vector3(100, 520, -880),
+    target: new THREE.Vector3(950, 380, -880),
   },
   chaise: {
-    pos: new THREE.Vector3(150, 650, 350),
-    target: new THREE.Vector3(450, 410, -370),
+    pos: new THREE.Vector3(650, 650, 100),
+    target: new THREE.Vector3(950, 380, -880),
   },
   overview: {
-    pos: new THREE.Vector3(-250, 1150, 750),
-    target: new THREE.Vector3(-280, 400, -370),
+    pos: new THREE.Vector3(320, 1300, 850),
+    target: new THREE.Vector3(320, 350, -780),
   },
 };
 
@@ -293,7 +297,7 @@ export default function SofaViewer({
         : null;
 
       if (wallMaterial) {
-        // 1. Match the white background behind the sofa with the concrete wall texture
+        // Keep concrete wall texture on bezMesh and side wall as requested
         const bezMesh = object.getObjectByName("Без_названия8_20260512190452") as THREE.Mesh | undefined;
         if (bezMesh) {
           const bezMat = (wallMaterial as THREE.MeshPhongMaterial).clone();
@@ -307,7 +311,6 @@ export default function SofaViewer({
           bezMesh.material = bezMat;
         }
 
-        // 2. Match the wall in front / to the side of the sofa with the concrete wall texture
         const plane003 = object.getObjectByName("Plane003") as THREE.Mesh | undefined;
         if (plane003) {
           const p3Mat = (wallMaterial as THREE.MeshPhongMaterial).clone();
@@ -327,61 +330,53 @@ export default function SofaViewer({
         }
       }
 
-      // Symmetrical center pivot of the seating ensemble (sofa cushions, rug, and coffee table)
-      // Placed facing the front wall of the TV (+Z towards Plane002)
-      const sofaCenter = new THREE.Vector3(95, 350, -700);
+      // 1. Separate 'material' into sofa body and front table (block with red arrow at cx > 1000 is removed)
+      const m = object.getObjectByName("material") as THREE.Mesh | undefined;
+      let sofaMesh: THREE.Mesh | null = null;
+      let frontTableMesh: THREE.Mesh | null = null;
+      if (m) {
+        sofaMesh = extractSubmesh(m, "SofaBody", (cx, cy, cz) => cx <= 1000 && cz <= -800);
+        frontTableMesh = extractSubmesh(m, "FrontCoffeeTable", (cx, cy, cz) => cx <= 1000 && cz > -800);
+        if (m.parent) m.parent.remove(m);
+      }
 
+      // 2. Separate 'material002' into table with coffee cup, plant stands, and yellow block bench
+      const m2 = object.getObjectByName("material002") as THREE.Mesh | undefined;
+      let coffeeCupTableMesh: THREE.Mesh | null = null;
+      let plantStandMesh: THREE.Mesh | null = null;
+      let yellowBlockMesh: THREE.Mesh | null = null;
+      if (m2) {
+        // Table with coffee cup (beside sofa on right) -> moves with Move Sofa button
+        coffeeCupTableMesh = extractSubmesh(m2, "TableWithCoffeeCup", (cx, cy, cz) => cx >= -400 && cz < -800);
+        // Table with blue arrow (plant stands with tall plants on left) -> moves with Move Room button (background)
+        plantStandMesh = extractSubmesh(m2, "PlantStandsBlueArrow", (cx, cy, cz) => cx < -400);
+        // Block with yellow arrow (low bench) -> moved towards other wall, moves with Move Room button
+        yellowBlockMesh = extractSubmesh(m2, "YellowBlockBench", (cx, cy, cz) => cx >= -400 && cz >= -800);
+        if (m2.parent) m2.parent.remove(m2);
+      }
+
+      // Move yellow block towards other wall (where the other yellow arrow points, along left wall)
+      if (yellowBlockMesh) {
+        yellowBlockMesh.position.x -= 2200;
+        yellowBlockMesh.updateMatrixWorld(true);
+      }
+
+      // Rug under front table
+      const rug = object.getObjectByName("Cube001") as THREE.Mesh | undefined;
+
+      // 3. Setup SofaPivot: Holds sofa, front coffee table, table with coffee cup, rug, and brand tag
       const sofaPivot = new THREE.Group();
       sofaPivot.name = "SofaPivot";
-      sofaPivot.position.copy(sofaCenter);
+      sofaPivot.position.copy(SOFA_ORIGIN);
       scene.add(sofaPivot);
       sofaPivotRef.current = sofaPivot;
 
-      const roomPivot = new THREE.Group();
-      roomPivot.name = "RoomPivot";
-      roomPivot.position.set(-280, 420, -370);
-      scene.add(roomPivot);
-      roomPivotRef.current = roomPivot;
+      if (sofaMesh) sofaPivot.attach(sofaMesh);
+      if (frontTableMesh) sofaPivot.attach(frontTableMesh);
+      if (coffeeCupTableMesh) sofaPivot.attach(coffeeCupTableMesh);
+      if (rug) sofaPivot.attach(rug);
 
-      // Split material003 into floor living-room items (floor lamp, side table, accessories)
-      // and ceiling fixtures (spots, overhead lights)
-      const m3 = object.getObjectByName("material003") as THREE.Mesh | undefined;
-      let m3Furniture: THREE.Mesh | null = null;
-      let m3Ceiling: THREE.Mesh | null = null;
-      if (m3) {
-        object.updateMatrixWorld(true);
-        const { lowMesh, highMesh } = splitMeshByHeight(m3, 1200);
-        m3Furniture = lowMesh;
-        m3Ceiling = highMesh;
-        if (m3.parent) {
-          m3.parent.remove(m3);
-        }
-      }
-
-      // Group all sofa seating ensemble elements (sofa frame, cushions, rug, coffee table, side table, floor lamp)
-      // under sofaPivot so they are moveable together with the sofa, placed facing the front wall of the TV
-      const sofaMeshNames = ["material", "material002", "Cube001"];
-      const sofaMeshes: THREE.Object3D[] = [];
-      const roomMeshes: THREE.Object3D[] = [];
-
-      if (m3Furniture) sofaMeshes.push(m3Furniture);
-      if (m3Ceiling) roomMeshes.push(m3Ceiling);
-
-      object.traverse((c) => {
-        if (c instanceof THREE.Mesh) {
-          if (c === m3) return;
-          if (sofaMeshNames.includes(c.name)) {
-            sofaMeshes.push(c);
-          } else {
-            roomMeshes.push(c);
-          }
-        }
-      });
-
-      sofaMeshes.forEach((m) => sofaPivot.attach(m));
-      roomMeshes.forEach((m) => roomPivot.attach(m));
-
-      // Attach the clear AZS Solutions brand tag directly to the front base of the sofa
+      // Attach clear AZS Solutions brand tag directly to front of sofa
       const brandTag = createFabricBrandPatch();
       if (brandTag) {
         brandTag.position.set(520, 200, -934);
@@ -390,10 +385,20 @@ export default function SofaViewer({
         sofaPivot.attach(brandTag);
       }
 
-      // Reposition and rotate the sofa ensemble to sit against the wall directly opposite the TV,
-      // facing straight towards the TV (-X)
-      sofaPivot.rotation.set(0, -Math.PI / 2, 0);
-      sofaPivot.position.set(300, 350, -726);
+      // Set default position and rotation for sofa ensemble matching Image 2
+      sofaPivot.position.copy(SOFA_DEFAULT_POS);
+      sofaPivot.rotation.copy(SOFA_DEFAULT_ROT);
+
+      // 4. Setup RoomPivot: Holds plant stands (blue arrow table), moved yellow block, and entire room background
+      const roomPivot = new THREE.Group();
+      roomPivot.name = "RoomPivot";
+      roomPivot.position.copy(ROOM_ORIGIN);
+      scene.add(roomPivot);
+      roomPivotRef.current = roomPivot;
+
+      if (plantStandMesh) roomPivot.attach(plantStandMesh);
+      if (yellowBlockMesh) roomPivot.attach(yellowBlockMesh);
+      roomPivot.attach(object);
 
       camera.position.copy(DEFAULT_CAMERA_POS);
       camera.lookAt(DEFAULT_TARGET);
@@ -575,8 +580,8 @@ export default function SofaViewer({
       controls.update();
     }
     if (sofaPivotRef.current) {
-      sofaPivotRef.current.position.set(300, 350, -726);
-      sofaPivotRef.current.rotation.set(0, -Math.PI / 2, 0);
+      sofaPivotRef.current.position.copy(SOFA_DEFAULT_POS);
+      sofaPivotRef.current.rotation.copy(SOFA_DEFAULT_ROT);
     }
     if (roomPivotRef.current) {
       roomPivotRef.current.rotation.set(0, 0, 0);
@@ -767,9 +772,9 @@ export default function SofaViewer({
             <span className="flex items-center gap-1.5 font-medium">
               <Compass className="h-3.5 w-3.5 text-[#C9936A]" />
               {controlTarget === "sofa"
-                ? "Drag horizontally to spin sofa • Room stays static"
+                ? "Drag horizontally to spin sofa & coffee tables • Room stays static"
                 : controlTarget === "room"
-                ? "Drag horizontally to orbit room • Sofa stays static"
+                ? "Drag horizontally to orbit room & background • Sofa stays static"
                 : "Drag to orbit 360° | Scroll or pinch to zoom"}
             </span>
           </div>
