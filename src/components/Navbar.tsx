@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { siteConfig } from "@/config/site";
+import AtelierLogo from "@/components/AtelierLogo";
 import { Menu, X, ArrowUpRight } from "lucide-react";
 
 interface NavbarProps {
@@ -45,19 +46,9 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
             <a
               href="#hero"
               onClick={(e) => handleNavClick(e, "#hero")}
-              className="group flex items-center gap-2 sm:gap-2.5 transition-opacity hover:opacity-85 min-w-0"
+              className="group transition-opacity hover:opacity-90 min-w-0"
             >
-              {/* Minimalist Studio Emblem (Diamond) - Distinct from hamburger menu */}
-              <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rotate-45 border border-[#37312D] bg-[#D8B9A6]/70 shrink-0" />
-
-              <div className="flex flex-col min-w-0">
-                <span className="font-serif text-base sm:text-lg tracking-[0.16em] sm:tracking-[0.2em] uppercase text-[#37312D] font-medium leading-none truncate">
-                  {siteConfig.brand.name}
-                </span>
-                <span className="text-[8px] sm:text-[9px] tracking-[0.16em] sm:tracking-[0.18em] text-[#81766E] uppercase font-light mt-0.5">
-                  Furniture Studio
-                </span>
-              </div>
+              <AtelierLogo />
             </a>
 
             {/* Navigation Links */}

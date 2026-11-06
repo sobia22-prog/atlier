@@ -8,9 +8,11 @@ import {
   AlertCircle,
   Compass,
   Maximize2,
+  Minimize2,
   Pause,
   Play,
   RotateCcw,
+  RotateCw,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -20,9 +22,11 @@ interface SofaViewerProps {
   className?: string;
 }
 
-// Camera placed inside the living room area so room boundaries and floor stay completely within view
-const DEFAULT_TARGET = new THREE.Vector3(50, 430, -780);
-const DEFAULT_CAMERA_POS = new THREE.Vector3(100, 700, 1000);
+export type ControlTarget = "all" | "sofa" | "room";
+
+// Camera placed inside the living room area framing both the TV console and the sofa ensemble
+const DEFAULT_TARGET = new THREE.Vector3(-280, 420, -370);
+const DEFAULT_CAMERA_POS = new THREE.Vector3(-120, 680, 850);
 const BASE_FOV = 44;
 
 function calculateFov(aspect: number): number {
@@ -30,6 +34,62 @@ function calculateFov(aspect: number): number {
     return Math.min(58, BASE_FOV / (aspect / 1.3));
   }
   return BASE_FOV;
+}
+
+// Splits non-indexed mesh geometry into floor/furniture items and ceiling fixtures
+function splitMeshByHeight(mesh: THREE.Mesh, thresholdY = 1200) {
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position;
+  const norm = geo.attributes.normal;
+  const uv = geo.attributes.uv;
+
+  const lowPos: number[] = [];
+  const lowNorm: number[] = [];
+  const lowUv: number[] = [];
+  const highPos: number[] = [];
+  const highNorm: number[] = [];
+  const highUv: number[] = [];
+
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i += 3) {
+    let maxY = -Infinity;
+    for (let j = 0; j < 3; j++) {
+      v.fromBufferAttribute(pos, i + j);
+      v.applyMatrix4(mesh.matrixWorld);
+      maxY = Math.max(maxY, v.y);
+    }
+    const targetPos = maxY < thresholdY ? lowPos : highPos;
+    const targetNorm = maxY < thresholdY ? lowNorm : highNorm;
+    const targetUv = maxY < thresholdY ? lowUv : highUv;
+
+    for (let j = 0; j < 3; j++) {
+      targetPos.push(pos.getX(i + j), pos.getY(i + j), pos.getZ(i + j));
+      if (norm) targetNorm.push(norm.getX(i + j), norm.getY(i + j), norm.getZ(i + j));
+      if (uv) targetUv.push(uv.getX(i + j), uv.getY(i + j));
+    }
+  }
+
+  const lowGeo = new THREE.BufferGeometry();
+  lowGeo.setAttribute("position", new THREE.Float32BufferAttribute(lowPos, 3));
+  if (norm) lowGeo.setAttribute("normal", new THREE.Float32BufferAttribute(lowNorm, 3));
+  if (uv) lowGeo.setAttribute("uv", new THREE.Float32BufferAttribute(lowUv, 2));
+
+  const highGeo = new THREE.BufferGeometry();
+  highGeo.setAttribute("position", new THREE.Float32BufferAttribute(highPos, 3));
+  if (norm) highGeo.setAttribute("normal", new THREE.Float32BufferAttribute(highNorm, 3));
+  if (uv) highGeo.setAttribute("uv", new THREE.Float32BufferAttribute(highUv, 2));
+
+  const lowMesh = new THREE.Mesh(lowGeo, mesh.material);
+  lowMesh.name = `${mesh.name}_furniture`;
+  lowMesh.matrix.copy(mesh.matrix);
+  lowMesh.matrixWorld.copy(mesh.matrixWorld);
+
+  const highMesh = new THREE.Mesh(highGeo, mesh.material);
+  highMesh.name = `${mesh.name}_ceiling`;
+  highMesh.matrix.copy(mesh.matrix);
+  highMesh.matrixWorld.copy(mesh.matrixWorld);
+
+  return { lowMesh, highMesh };
 }
 
 // Generates a high-contrast luxury embroidered fabric brand tag for AZS Solutions
@@ -114,16 +174,16 @@ const PRESETS: Record<string, { pos: THREE.Vector3; target: THREE.Vector3 }> = {
     target: DEFAULT_TARGET.clone(),
   },
   front: {
-    pos: new THREE.Vector3(50, 650, 950),
-    target: new THREE.Vector3(50, 420, -800),
+    pos: new THREE.Vector3(-850, 560, -370),
+    target: new THREE.Vector3(450, 420, -370),
   },
   chaise: {
-    pos: new THREE.Vector3(-800, 700, 750),
-    target: new THREE.Vector3(-250, 420, -700),
+    pos: new THREE.Vector3(150, 650, 350),
+    target: new THREE.Vector3(450, 410, -370),
   },
   overview: {
-    pos: new THREE.Vector3(100, 1150, 900),
-    target: new THREE.Vector3(50, 380, -750),
+    pos: new THREE.Vector3(-250, 1150, 750),
+    target: new THREE.Vector3(-280, 400, -370),
   },
 };
 
@@ -132,6 +192,7 @@ export default function SofaViewer({
   className = "",
 }: SofaViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -145,6 +206,13 @@ export default function SofaViewer({
   const [activePreset, setActivePreset] = useState("angle");
   const [hasInteracted, setHasInteracted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [controlTarget, setControlTarget] = useState<ControlTarget>("all");
+
+  const sofaPivotRef = useRef<THREE.Group | null>(null);
+  const roomPivotRef = useRef<THREE.Group | null>(null);
+  const controlTargetRef = useRef<ControlTarget>("all");
+  const isAutoRotatingRef = useRef(false);
+  const pointerStartRef = useRef<{ x: number; y: number; active: boolean }>({ x: 0, y: 0, active: false });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -154,7 +222,7 @@ export default function SofaViewer({
 
     let isDisposed = false;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#EAE5DC");
+    scene.background = new THREE.Color("#252321");
 
     const initialAspect = stage.clientWidth / stage.clientHeight;
     const camera = new THREE.PerspectiveCamera(
@@ -218,13 +286,114 @@ export default function SofaViewer({
       if (isDisposed) return;
       scene.add(object);
 
+      // Retrieve the concrete wall material from Plane001
+      const plane001 = object.getObjectByName("Plane001") as THREE.Mesh | undefined;
+      const wallMaterial = plane001?.material
+        ? (Array.isArray(plane001.material) ? plane001.material[0] : plane001.material)
+        : null;
+
+      if (wallMaterial) {
+        // 1. Match the white background behind the sofa with the concrete wall texture
+        const bezMesh = object.getObjectByName("Без_названия8_20260512190452") as THREE.Mesh | undefined;
+        if (bezMesh) {
+          const bezMat = (wallMaterial as THREE.MeshPhongMaterial).clone();
+          if (bezMat.map) {
+            bezMat.map = (wallMaterial as THREE.MeshPhongMaterial).map!.clone();
+            bezMat.map.wrapS = THREE.RepeatWrapping;
+            bezMat.map.wrapT = THREE.RepeatWrapping;
+            bezMat.map.repeat.set(1.4, 1.2);
+            bezMat.map.needsUpdate = true;
+          }
+          bezMesh.material = bezMat;
+        }
+
+        // 2. Match the wall in front / to the side of the sofa with the concrete wall texture
+        const plane003 = object.getObjectByName("Plane003") as THREE.Mesh | undefined;
+        if (plane003) {
+          const p3Mat = (wallMaterial as THREE.MeshPhongMaterial).clone();
+          if (p3Mat.map) {
+            p3Mat.map = (wallMaterial as THREE.MeshPhongMaterial).map!.clone();
+            p3Mat.map.wrapS = THREE.RepeatWrapping;
+            p3Mat.map.wrapT = THREE.RepeatWrapping;
+            p3Mat.map.repeat.set(1.0, 1.0);
+            p3Mat.map.needsUpdate = true;
+          }
+          plane003.material = p3Mat;
+        }
+
+        const plane002 = object.getObjectByName("Plane002") as THREE.Mesh | undefined;
+        if (plane002) {
+          plane002.material = wallMaterial;
+        }
+      }
+
+      // Symmetrical center pivot of the seating ensemble (sofa cushions, rug, and coffee table)
+      // Placed facing the front wall of the TV (+Z towards Plane002)
+      const sofaCenter = new THREE.Vector3(95, 350, -700);
+
+      const sofaPivot = new THREE.Group();
+      sofaPivot.name = "SofaPivot";
+      sofaPivot.position.copy(sofaCenter);
+      scene.add(sofaPivot);
+      sofaPivotRef.current = sofaPivot;
+
+      const roomPivot = new THREE.Group();
+      roomPivot.name = "RoomPivot";
+      roomPivot.position.set(-280, 420, -370);
+      scene.add(roomPivot);
+      roomPivotRef.current = roomPivot;
+
+      // Split material003 into floor living-room items (floor lamp, side table, accessories)
+      // and ceiling fixtures (spots, overhead lights)
+      const m3 = object.getObjectByName("material003") as THREE.Mesh | undefined;
+      let m3Furniture: THREE.Mesh | null = null;
+      let m3Ceiling: THREE.Mesh | null = null;
+      if (m3) {
+        object.updateMatrixWorld(true);
+        const { lowMesh, highMesh } = splitMeshByHeight(m3, 1200);
+        m3Furniture = lowMesh;
+        m3Ceiling = highMesh;
+        if (m3.parent) {
+          m3.parent.remove(m3);
+        }
+      }
+
+      // Group all sofa seating ensemble elements (sofa frame, cushions, rug, coffee table, side table, floor lamp)
+      // under sofaPivot so they are moveable together with the sofa, placed facing the front wall of the TV
+      const sofaMeshNames = ["material", "material002", "Cube001"];
+      const sofaMeshes: THREE.Object3D[] = [];
+      const roomMeshes: THREE.Object3D[] = [];
+
+      if (m3Furniture) sofaMeshes.push(m3Furniture);
+      if (m3Ceiling) roomMeshes.push(m3Ceiling);
+
+      object.traverse((c) => {
+        if (c instanceof THREE.Mesh) {
+          if (c === m3) return;
+          if (sofaMeshNames.includes(c.name)) {
+            sofaMeshes.push(c);
+          } else {
+            roomMeshes.push(c);
+          }
+        }
+      });
+
+      sofaMeshes.forEach((m) => sofaPivot.attach(m));
+      roomMeshes.forEach((m) => roomPivot.attach(m));
+
       // Attach the clear AZS Solutions brand tag directly to the front base of the sofa
       const brandTag = createFabricBrandPatch();
       if (brandTag) {
         brandTag.position.set(520, 200, -934);
         brandTag.rotation.set(0, 0, 0);
         scene.add(brandTag);
+        sofaPivot.attach(brandTag);
       }
+
+      // Reposition and rotate the sofa ensemble to sit against the wall directly opposite the TV,
+      // facing straight towards the TV (-X)
+      sofaPivot.rotation.set(0, -Math.PI / 2, 0);
+      sofaPivot.position.set(300, 350, -726);
 
       camera.position.copy(DEFAULT_CAMERA_POS);
       camera.lookAt(DEFAULT_TARGET);
@@ -261,7 +430,16 @@ export default function SofaViewer({
 
     const render = () => {
       animationRef.current = requestAnimationFrame(render);
-      controls.update();
+      if (controlsRef.current) {
+        controlsRef.current.update();
+      }
+      if (isAutoRotatingRef.current) {
+        if (controlTargetRef.current === "sofa" && sofaPivotRef.current) {
+          sofaPivotRef.current.rotation.y += 0.01;
+        } else if (controlTargetRef.current === "room" && roomPivotRef.current) {
+          roomPivotRef.current.rotation.y += 0.01;
+        }
+      }
       renderer.render(scene, camera);
     };
     render();
@@ -297,8 +475,75 @@ export default function SofaViewer({
       controlsRef.current = null;
       cameraRef.current = null;
       rendererRef.current = null;
+      sofaPivotRef.current = null;
+      roomPivotRef.current = null;
     };
   }, [objPath]);
+
+  const setTargetMode = useCallback((target: ControlTarget) => {
+    setControlTarget(target);
+    controlTargetRef.current = target;
+    if (controlsRef.current) {
+      controlsRef.current.enabled = target === "all";
+      if (target !== "all" && controlsRef.current.autoRotate) {
+        controlsRef.current.autoRotate = false;
+      }
+    }
+    interactedRef.current = true;
+    setHasInteracted(true);
+  }, []);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (controlTargetRef.current === "all") return;
+    pointerStartRef.current = { x: e.clientX, y: e.clientY, active: true };
+    interactedRef.current = true;
+    setHasInteracted(true);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!pointerStartRef.current.active || controlTargetRef.current === "all") return;
+    const deltaX = e.clientX - pointerStartRef.current.x;
+    pointerStartRef.current.x = e.clientX;
+    pointerStartRef.current.y = e.clientY;
+
+    if (controlTargetRef.current === "sofa" && sofaPivotRef.current) {
+      sofaPivotRef.current.rotation.y += deltaX * 0.008;
+    } else if (controlTargetRef.current === "room" && roomPivotRef.current) {
+      roomPivotRef.current.rotation.y += deltaX * 0.008;
+    }
+  }, []);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (pointerStartRef.current.active) {
+      pointerStartRef.current.active = false;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const rotateActivePivot = useCallback((direction: "left" | "right") => {
+    const angle = direction === "left" ? -Math.PI / 8 : Math.PI / 8;
+    if (controlTargetRef.current === "sofa" && sofaPivotRef.current) {
+      sofaPivotRef.current.rotation.y += angle;
+    } else if (controlTargetRef.current === "room" && roomPivotRef.current) {
+      roomPivotRef.current.rotation.y += angle;
+    } else if (controlsRef.current && cameraRef.current) {
+      const offset = cameraRef.current.position.clone().sub(controlsRef.current.target);
+      offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+      cameraRef.current.position.copy(controlsRef.current.target.clone().add(offset));
+      controlsRef.current.update();
+    }
+    interactedRef.current = true;
+    setHasInteracted(true);
+  }, []);
 
   const applyPreset = useCallback((presetId: string) => {
     const camera = cameraRef.current;
@@ -314,6 +559,7 @@ export default function SofaViewer({
     setActivePreset(presetId);
     controls.autoRotate = false;
     setIsAutoRotating(false);
+    isAutoRotatingRef.current = false;
     interactedRef.current = true;
     setHasInteracted(true);
   }, []);
@@ -328,16 +574,28 @@ export default function SofaViewer({
       controls.autoRotate = false;
       controls.update();
     }
+    if (sofaPivotRef.current) {
+      sofaPivotRef.current.position.set(300, 350, -726);
+      sofaPivotRef.current.rotation.set(0, -Math.PI / 2, 0);
+    }
+    if (roomPivotRef.current) {
+      roomPivotRef.current.rotation.set(0, 0, 0);
+    }
     interactedRef.current = false;
     setActivePreset("angle");
     setIsAutoRotating(false);
+    isAutoRotatingRef.current = false;
     setHasInteracted(false);
   }, []);
 
   const toggleAutoRotate = useCallback(() => {
     setIsAutoRotating((current) => {
-      if (controlsRef.current) controlsRef.current.autoRotate = !current;
-      return !current;
+      const next = !current;
+      isAutoRotatingRef.current = next;
+      if (controlsRef.current) {
+        controlsRef.current.autoRotate = next && controlTargetRef.current === "all";
+      }
+      return next;
     });
   }, []);
 
@@ -360,18 +618,65 @@ export default function SofaViewer({
     setHasInteracted(true);
   }, []);
 
+  // Sync native fullscreen state changes (e.g. user pressing Esc key or browser controls)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFs = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isFs);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+    };
+  }, []);
+
   const toggleFullscreen = useCallback(async () => {
-    if (!containerRef.current) return;
+    const stageEl = stageRef.current;
+    if (!stageEl) return;
     try {
-      if (!document.fullscreenElement) {
-        await containerRef.current.requestFullscreen();
+      const isCurrentlyFs = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+
+      if (!isCurrentlyFs) {
+        if (stageEl.requestFullscreen) {
+          await stageEl.requestFullscreen();
+        } else if ((stageEl as any).webkitRequestFullscreen) {
+          await (stageEl as any).webkitRequestFullscreen();
+        } else if ((stageEl as any).msRequestFullscreen) {
+          await (stageEl as any).msRequestFullscreen();
+        }
         setIsFullscreen(true);
       } else {
-        await document.exitFullscreen();
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen();
+        }
         setIsFullscreen(false);
       }
     } catch (error) {
       console.warn("Fullscreen toggle error:", error);
+      // Fallback in-window fullscreen modal toggle if native API is restricted
+      setIsFullscreen((prev) => !prev);
     }
   }, []);
 
@@ -383,110 +688,200 @@ export default function SofaViewer({
   ] as const;
 
   return (
-    <div ref={containerRef} className={`relative flex w-full flex-col ${className}`}>
-      {/* 3D Stage sized to keep everything inside the room without going out of bounds */}
-      <div className="relative w-full h-[320px] sm:h-[360px] md:h-[400px] lg:h-[420px] xl:h-[440px] overflow-hidden rounded-2xl bg-[#EAE5DC] border border-[#E6DED6] shadow-sm">
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          className="absolute right-3 top-3 z-20 rounded-full border border-white/60 bg-white/90 p-2 text-[#37312D] hover:bg-white transition-colors sm:right-4 sm:top-4 cursor-pointer shadow-xs"
-          title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-          aria-label="Toggle fullscreen"
-        >
-          <Maximize2 className="h-4 w-4" />
-        </button>
+    <div
+      ref={containerRef}
+      className={`relative flex w-full flex-col ${
+        isFullscreen ? "fixed inset-0 z-[9999] h-screen w-screen bg-[#252321]" : ""
+      } ${className}`}
+    >
+      {/* 3D Stage: expands to 100vw and 100vh on fullscreen without letterboxing or black gaps */}
+      <div
+        ref={stageRef}
+        className={`relative w-full overflow-hidden bg-[#252321] transition-all duration-150 ${
+          isFullscreen
+            ? "fixed inset-0 z-[9999] h-screen w-screen rounded-none border-0 shadow-none"
+            : "h-[340px] sm:h-[380px] md:h-[420px] lg:h-[440px] xl:h-[460px] rounded-2xl border border-[#3E3A35] shadow-lg"
+        } [&:fullscreen]:fixed [&:fullscreen]:inset-0 [&:fullscreen]:h-screen [&:fullscreen]:w-screen [&:fullscreen]:rounded-none [&:fullscreen]:border-0 [&:-webkit-full-screen]:fixed [&:-webkit-full-screen]:inset-0 [&:-webkit-full-screen]:h-screen [&:-webkit-full-screen]:w-screen [&:-webkit-full-screen]:rounded-none [&:-webkit-full-screen]:border-0`}
+      >
+        
+        {/* Top Controls: Preset Angles & Fullscreen Toggle */}
+        <div className="absolute top-3 left-3 right-3 z-20 flex items-center justify-between pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-[#FAF8F5]/20 bg-[#FAF8F5]/90 backdrop-blur-md p-1 shadow-md">
+            {presets.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => applyPreset(id)}
+                className={`rounded-full px-2.5 sm:px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                  activePreset === id
+                    ? "bg-[#37312D] text-[#FAF8F5] shadow-xs"
+                    : "text-[#37312D] hover:bg-[#EAE4DC]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="pointer-events-auto rounded-full border border-white/40 bg-[#FAF8F5]/90 backdrop-blur-md p-2 text-[#37312D] hover:bg-white transition-colors cursor-pointer shadow-md"
+            title={isFullscreen ? "Exit Fullscreen (Esc)" : "Fullscreen"}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+        </div>
+
+        {/* Loading Overlay */}
         {!isLoaded && !loadError && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#EAE5DC]">
-            <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#B8B2AD] border-t-[#37312D]" />
-            <span className="text-xs tracking-wider uppercase text-[#81766E]">Loading 3D Model...</span>
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#252321]">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#4A453F] border-t-[#D4A373]" />
+            <span className="text-xs tracking-wider uppercase text-[#A89F95]">Loading 3D Model...</span>
           </div>
         )}
 
+        {/* Error Overlay */}
         {loadError && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#EAE5DC] p-6 text-center">
-            <AlertCircle className="h-6 w-6 text-[#B36851]" />
-            <p className="text-xs text-[#37312D]">{loadError}</p>
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#252321] p-6 text-center">
+            <AlertCircle className="h-6 w-6 text-[#E07A5F]" />
+            <p className="text-xs text-[#E8E2D9]">{loadError}</p>
           </div>
         )}
 
+        {/* 3D Canvas with drag handlers for sofa/room modes */}
         <canvas
           ref={canvasRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           className="block w-full h-full touch-none cursor-grab outline-none active:cursor-grabbing"
           aria-label="Interactive 3D Solene Corner Sofa living room model"
         />
 
+        {/* Mode-aware interaction guide */}
         {isLoaded && !hasInteracted && (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-full bg-[#37312D]/85 backdrop-blur-md px-3.5 py-1 text-[11px] text-[#FAF8F5]">
-            <span className="flex items-center gap-1.5">
-              <Compass className="h-3.5 w-3.5 text-[#FAF8F5]" />
-              Drag to orbit 360° | Scroll or pinch to zoom
+          <div className="pointer-events-none absolute bottom-16 left-1/2 z-20 -translate-x-1/2 rounded-full bg-[#FAF8F5]/90 border border-[#E6DED6]/80 backdrop-blur-md px-3.5 py-1 text-[11px] text-[#37312D] shadow-sm">
+            <span className="flex items-center gap-1.5 font-medium">
+              <Compass className="h-3.5 w-3.5 text-[#C9936A]" />
+              {controlTarget === "sofa"
+                ? "Drag horizontally to spin sofa • Room stays static"
+                : controlTarget === "room"
+                ? "Drag horizontally to orbit room • Sofa stays static"
+                : "Drag to orbit 360° | Scroll or pinch to zoom"}
             </span>
           </div>
         )}
-      </div>
 
-      {/* Preset and camera controls */}
-      <div className="mt-2.5 flex w-full flex-wrap items-center justify-between gap-2 flex-shrink-0">
-        <div className="flex items-center gap-1 rounded-full border border-[#E6DED6] bg-[#F2EDE6]/90 p-1">
-          {presets.map(([id, label]) => (
+        {/* Bottom Floating Bar: Mode Switcher & Quick Navigation */}
+        <div className="absolute bottom-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+          
+          {/* Movement target switcher: Sofa static vs Room static vs All */}
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-[#FAF8F5]/20 bg-[#FAF8F5]/95 backdrop-blur-md p-1 shadow-md">
+            <span className="text-[10px] uppercase font-semibold text-[#81766E] px-2 hidden sm:inline tracking-wider">
+              Control:
+            </span>
             <button
-              key={id}
               type="button"
-              onClick={() => applyPreset(id)}
-              className={`rounded-full px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
-                activePreset === id
+              onClick={() => setTargetMode("all")}
+              className={`rounded-full px-2.5 sm:px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1 ${
+                controlTarget === "all"
                   ? "bg-[#37312D] text-[#FAF8F5] shadow-xs"
-                  : "text-[#37312D] hover:bg-white/70"
+                  : "text-[#37312D] hover:bg-[#EAE4DC]"
               }`}
+              title="Rotate all room elements together in 360° orbit"
             >
-              {label}
+              <span>All 360°</span>
             </button>
-          ))}
-        </div>
+            <button
+              type="button"
+              onClick={() => setTargetMode("sofa")}
+              className={`rounded-full px-2.5 sm:px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1 ${
+                controlTarget === "sofa"
+                  ? "bg-[#37312D] text-[#FAF8F5] shadow-xs"
+                  : "text-[#37312D] hover:bg-[#EAE4DC]"
+              }`}
+              title="Move/rotate sofa only while room & background stay static"
+            >
+              <span>Move Sofa</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTargetMode("room")}
+              className={`rounded-full px-2.5 sm:px-3 py-1 text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1 ${
+                controlTarget === "room"
+                  ? "bg-[#37312D] text-[#FAF8F5] shadow-xs"
+                  : "text-[#37312D] hover:bg-[#EAE4DC]"
+              }`}
+              title="Move/orbit room while sofa stays static"
+            >
+              <span>Move Room</span>
+            </button>
+          </div>
 
-        <div className="ml-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={toggleAutoRotate}
-            className={`rounded-full border p-1.5 cursor-pointer transition-colors ${
-              isAutoRotating
-                ? "border-[#37312D] bg-[#37312D] text-white"
-                : "border-[#E6DED6] bg-white text-[#37312D] hover:bg-[#FAF8F5]"
-            }`}
-            title={isAutoRotating ? "Pause room orbit" : "Auto-orbit room 360°"}
-            aria-label={isAutoRotating ? "Pause room orbit" : "Auto-orbit room 360°"}
-          >
-            {isAutoRotating ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => zoom("in")}
-            className="rounded-full border border-[#E6DED6] bg-white p-1.5 text-[#37312D] hover:bg-[#FAF8F5] cursor-pointer transition-colors"
-            title="Zoom in"
-            aria-label="Zoom in"
-          >
-            <ZoomIn className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => zoom("out")}
-            className="rounded-full border border-[#E6DED6] bg-white p-1.5 text-[#37312D] hover:bg-[#FAF8F5] cursor-pointer transition-colors"
-            title="Zoom out"
-            aria-label="Zoom out"
-          >
-            <ZoomOut className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={resetView}
-            className="flex items-center gap-1.5 rounded-full border border-[#E6DED6] bg-white px-2.5 py-1 text-xs text-[#37312D] hover:bg-[#FAF8F5] cursor-pointer transition-colors"
-            title="Reset view"
-            aria-label="Reset view"
-          >
-            <RotateCcw className="h-3 w-3" />
-            <span className="hidden sm:inline text-[11px]">Reset</span>
-          </button>
+          {/* Quick Rotation, Zoom & Reset tools */}
+          <div className="pointer-events-auto ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => rotateActivePivot("left")}
+              className="rounded-full border border-[#E6DED6]/80 bg-[#FAF8F5]/95 backdrop-blur-md p-1.5 text-[#37312D] hover:bg-white cursor-pointer transition-colors shadow-xs"
+              title={controlTarget === "sofa" ? "Spin sofa left" : controlTarget === "room" ? "Spin room left" : "Rotate camera left"}
+              aria-label="Rotate left"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => rotateActivePivot("right")}
+              className="rounded-full border border-[#E6DED6]/80 bg-[#FAF8F5]/95 backdrop-blur-md p-1.5 text-[#37312D] hover:bg-white cursor-pointer transition-colors shadow-xs"
+              title={controlTarget === "sofa" ? "Spin sofa right" : controlTarget === "room" ? "Spin room right" : "Rotate camera right"}
+              aria-label="Rotate right"
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={toggleAutoRotate}
+              className={`rounded-full border p-1.5 cursor-pointer backdrop-blur-md transition-colors shadow-xs ${
+                isAutoRotating
+                  ? "border-[#37312D] bg-[#37312D] text-white"
+                  : "border-[#E6DED6]/80 bg-[#FAF8F5]/95 text-[#37312D] hover:bg-white"
+              }`}
+              title={isAutoRotating ? "Pause auto-spin" : "Auto-spin 360°"}
+              aria-label={isAutoRotating ? "Pause auto-spin" : "Auto-spin 360°"}
+            >
+              {isAutoRotating ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => zoom("in")}
+              className="rounded-full border border-[#E6DED6]/80 bg-[#FAF8F5]/95 backdrop-blur-md p-1.5 text-[#37312D] hover:bg-white cursor-pointer transition-colors shadow-xs"
+              title="Zoom in"
+              aria-label="Zoom in"
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => zoom("out")}
+              className="rounded-full border border-[#E6DED6]/80 bg-[#FAF8F5]/95 backdrop-blur-md p-1.5 text-[#37312D] hover:bg-white cursor-pointer transition-colors shadow-xs"
+              title="Zoom out"
+              aria-label="Zoom out"
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={resetView}
+              className="flex items-center gap-1 rounded-full border border-[#E6DED6]/80 bg-[#FAF8F5]/95 backdrop-blur-md px-2.5 py-1 text-xs text-[#37312D] hover:bg-white cursor-pointer transition-colors shadow-xs"
+              title="Reset view and rotations"
+              aria-label="Reset view"
+            >
+              <span className="text-[11px] font-medium">Reset</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

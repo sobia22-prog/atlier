@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { siteConfig } from "@/config/site";
+import AtelierLogo from "@/components/AtelierLogo";
 import { ArrowUp, Check } from "lucide-react";
 
 export default function Footer() {
@@ -30,16 +31,7 @@ export default function Footer() {
           
           {/* Brand Column */}
           <div className="md:col-span-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 flex flex-col justify-center items-center gap-[3px]">
-                <span className="w-full h-[1px] bg-[#37312D]" />
-                <span className="w-2.5 h-[1px] bg-[#D8B9A6]" />
-                <span className="w-full h-[1px] bg-[#37312D]" />
-              </div>
-              <span className="font-serif text-lg tracking-[0.2em] uppercase text-[#37312D] font-medium">
-                {siteConfig.brand.name}
-              </span>
-            </div>
+            <AtelierLogo />
 
             <p className="font-serif text-base italic text-[#81766E]">
               &ldquo;{siteConfig.brand.tagline}&rdquo;

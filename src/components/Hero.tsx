@@ -21,13 +21,13 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
   return (
     <section
       id="hero"
-      className="relative pt-20 pb-4 lg:pt-22 lg:pb-6 flex flex-col justify-center"
+      className="relative pt-18 pb-3 lg:pt-20 lg:pb-4 flex flex-col justify-center"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
         
         {/* Simple, Non-Technical Header Before 3D Section */}
-        <div className="mb-3 lg:mb-4">
-          <div className="space-y-1">
+        <div className="mb-2.5 lg:mb-3.5">
+          <div className="space-y-0.5">
             <span className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#81766E] block">
               Living Room Collection
             </span>
@@ -36,7 +36,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
             </h1>
           </div>
 
-          <p className="max-w-none text-xs text-[#81766E] font-light leading-relaxed">
+          <p className="max-w-none text-xs text-[#81766E] font-light leading-relaxed mt-1">
             Designed for relaxing, watching movies, and spending time with family. Deep soft seating, clean lines, and fabrics built for everyday comfort.
           </p>
         </div>
@@ -45,15 +45,15 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
           
           {/* Interactive 3D sofa viewer */}
-          <div className="lg:col-span-8 order-1 flex flex-col w-full">
+          <div className="lg:col-span-8 order-1 w-full">
             <SofaViewer
               objPath="/modals/sofa/source/готовый.fbx"
               className="w-full"
             />
           </div>
 
-          {/* Useful Product Information (Cohesive, natural spacing) */}
-          <div className="lg:col-span-4 order-2 flex flex-col justify-center space-y-4 lg:pl-2">
+          {/* Useful Product Information (Vertically centered against 3D viewer) */}
+          <div className="lg:col-span-4 order-2 flex flex-col justify-center space-y-3.5 lg:space-y-4 lg:pl-3">
             
             <div className="space-y-1.5">
               <span className="text-[9px] tracking-[0.18em] uppercase text-[#81766E] font-medium px-2 py-0.5 rounded bg-[#F2EDE6]">
